@@ -1,216 +1,211 @@
-# streamlit_app.py — Eliot Downloader with Light/Dark theme + toggle
-from __future__ import annotations
+# main.py — Full backend for Eliot Downloader (Streamlit Edition)
 
+import os
+import shutil
 import uuid
+import logging
 import time
+from datetime import datetime, timedelta
+from urllib.parse import urlparse
 from pathlib import Path
-from datetime import datetime
 
-import streamlit as st
+import yt_dlp
 
-from main import (
-    list_cookie_files,
-    save_uploaded_cookie,
-    download_sessions,
-    download_job,
-    cleanup_old_cookies,
-)
+# ---------- Logging ----------
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("eliot")
 
-# ---------- Page Config ----------
-st.set_page_config(
-    page_title="Eliot Downloader",
-    page_icon=None,
-    layout="wide"
-)
+# ---------- Paths ----------
+BASE_DIR = Path(__file__).resolve().parent
+DOWNLOAD_DIR = Path.home() / "Downloads"
+COOKIES_DIR = BASE_DIR / "cookies"
+FFMPEG_DIR = BASE_DIR / "bin"
 
-# ---------- Basic SEO ----------
-st.markdown(
-    """
-    <meta name="description" content="Eliot Downloader — fast, reliable video and audio downloader powered by yt-dlp.">
-    <meta name="robots" content="index,follow">
-    """,
-    unsafe_allow_html=True
-)
+DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+COOKIES_DIR.mkdir(parents=True, exist_ok=True)
 
-# ---------- Theme: Auto + Toggle ----------
-default_theme = st.get_option("theme.base") or "dark"
-if "user_theme" not in st.session_state:
-    st.session_state.user_theme = default_theme
+# ---------- Platform Config ----------
+PLATFORM_CONFIGS = {
+    "agasobanuyefilms.com": {
+        "requires_cookies": True,
+        "description": "Rwandan movie streaming platform",
+        "user_agent": "Mozilla/5.0",
+        "referer": "https://agasobanuyefilms.com/",
+    },
+    "youtube.com": {"requires_cookies": False, "description": "YouTube"},
+    "vimeo.com": {"requires_cookies": False, "description": "Vimeo"},
+    "instagram.com": {"requires_cookies": False, "description": "Instagram (videos, images, reels)"},
+    "pinterest.com": {"requires_cookies": False, "description": "Pinterest images"},
+}
 
-with st.sidebar:
-    st.markdown("### Appearance")
-    st.session_state.user_theme = st.radio(
-        "Theme",
-        ["light", "dark"],
-        index=0 if st.session_state.user_theme == "light" else 1
-    )
-    st.markdown("---")
+# ---------- Download Session ----------
+class DownloadProgress:
+    def __init__(self, sid: str):
+        self.session_id = sid
+        self.status = "queued"
+        self.progress = 0.0
+        self.speed = "N/A"
+        self.eta = "N/A"
+        self.file_size = "N/A"
+        self.downloaded = "0 B"
+        self.error = None
+        self.filename = ""
+        self.filepath = ""
+        self.cookie_file = None
 
-theme = st.session_state.user_theme
+download_sessions = {}
 
-# ---------- Custom CSS ----------
-if theme == "light":
-    CUSTOM_CSS = """
-    <style>
-    body, .stApp {
-      background-color: #ffffff;
-      color: #000000;
+# ---------- Utilities ----------
+def has_ffmpeg() -> bool:
+    return shutil.which("ffmpeg") or (FFMPEG_DIR / "ffmpeg").exists()
+
+def fmt_bytes(n: int | float | None) -> str:
+    if not n or n <= 0:
+        return "N/A"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    x = float(n)
+    for u in units:
+        if x < 1024.0:
+            return f"{x:.1f} {u}"
+        x /= 1024.0
+    return f"{x:.1f} PB"
+
+def get_platform_config(url: str):
+    domain = urlparse(url).netloc.lower()
+    if domain.startswith("www."):
+        domain = domain[4:]
+    for k, v in PLATFORM_CONFIGS.items():
+        if domain.endswith(k):
+            return v
+    return None
+
+def list_cookie_files():
+    cookies = []
+    for f in COOKIES_DIR.glob("*.txt"):
+        cookies.append({"name": f.stem, "path": str(f)})
+    return cookies
+
+def save_uploaded_cookie(filename: str, data: bytes):
+    safe = filename.replace("/", "_").replace("\\", "_")
+    if not safe.endswith(".txt"):
+        safe += ".txt"
+    path = COOKIES_DIR / safe
+    with open(path, "wb") as f:
+        f.write(data)
+    return path
+
+def cleanup_old_cookies():
+    for f in COOKIES_DIR.glob("*.txt"):
+        age = datetime.now() - datetime.fromtimestamp(f.stat().st_ctime)
+        if age > timedelta(hours=24):
+            f.unlink()
+
+# ---------- yt-dlp Options ----------
+def ydl_base_opts(url: str, cookie_file: str | None = None):
+    platform = get_platform_config(url)
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "merge_output_format": "mp4",
+        "outtmpl": str(DOWNLOAD_DIR / "%(title).100B-%(id)s.%(ext)s"),
+        "retries": 10,
+        "socket_timeout": 30,
     }
-    .card {
-      background: #ffffff;
-      border: 1px solid #f3f4f6;
-      border-radius: 14px;
-      padding: 20px;
-      color: #000000;
+    if cookie_file and os.path.exists(cookie_file):
+        opts["cookiefile"] = cookie_file
+    if has_ffmpeg():
+        opts["ffmpeg_location"] = str(FFMPEG_DIR)
+    if platform and "user_agent" in platform:
+        opts.setdefault("http_headers", {})["User-Agent"] = platform["user_agent"]
+    if platform and "referer" in platform:
+        opts.setdefault("http_headers", {})["Referer"] = platform["referer"]
+    return opts
+
+def build_video_format(quality: str) -> str:
+    if quality == "best":
+        return "bv*+ba/b"
+    digits = "".join(ch for ch in quality if ch.isdigit())
+    if not digits:
+        return "bv*+ba/b"
+    return f"((bv*[height<={digits}][ext=mp4]/bv*[height<={digits}])+(ba[ext=m4a]/ba))/b[height<={digits}]"
+
+def build_audio_opts():
+    return {
+        "format": "bestaudio/best",
+        "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}],
     }
-    .stButton>button {
-      background: #ec4899; /* pink */
-      color: #000000;      /* black font */
-      border-radius: 8px;
-      border: none;
-      padding: 0.6rem 1rem;
-      font-weight: 500;
-    }
-    .stButton>button:hover { opacity: 0.9; }
-    .footer {
-      color: #6b7280;
-      font-size: 13px;
-      text-align: center;
-      padding: 16px 0 6px 0;
-      border-top: 1px solid #f3f4f6;
-      margin-top: 28px;
-    }
-    </style>
-    """
-else:  # dark
-    CUSTOM_CSS = """
-    <style>
-    body, .stApp {
-      background-color: #0b0c0f;
-      color: #e5e7eb;
-    }
-    .card {
-      background: #111317;
-      border: 1px solid #1f2937;
-      border-radius: 14px;
-      padding: 20px;
-    }
-    .stButton>button {
-      background: #2563eb; /* blue accent */
-      color: #ffffff;
-      border-radius: 8px;
-      border: none;
-      padding: 0.6rem 1rem;
-      font-weight: 500;
-    }
-    .stButton>button:hover { opacity: 0.92; }
-    .footer {
-      color: #9ca3af;
-      font-size: 13px;
-      text-align: center;
-      padding: 16px 0 6px 0;
-      border-top: 1px solid #1f2937;
-      margin-top: 28px;
-    }
-    </style>
-    """
 
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+def build_photo_opts():
+    return {"format": "best", "skip_download": False}
 
-# ---------- Sidebar (Cookies Section) ----------
-with st.sidebar:
-    st.markdown("### Cookies")
-    cookies = list_cookie_files()
-    if cookies:
-        names = ["None"] + [c["name"] for c in cookies]
-    else:
-        names = ["None"]
+# ---------- Progress Hook ----------
+def _progress_hook(d, session_id: str):
+    prog = download_sessions.get(session_id)
+    if not prog:
+        return
+    status = d.get("status", "")
+    if status == "downloading":
+        total = d.get("total_bytes") or d.get("total_bytes_estimate")
+        downloaded = d.get("downloaded_bytes") or 0
+        prog.status = "downloading"
+        prog.progress = (downloaded / total * 100) if total else prog.progress
+        prog.file_size = fmt_bytes(total)
+        prog.downloaded = fmt_bytes(downloaded)
+        prog.speed = d.get("_speed_str", "N/A")
+        prog.eta = d.get("_eta_str", "N/A")
+        prog.filename = os.path.basename(d.get("filename") or prog.filename)
+    elif status == "finished":
+        prog.status = "processing"
+        prog.progress = 100.0
+        prog.filepath = d.get("filename") or prog.filepath
+    elif status == "error":
+        prog.status = "error"
+        prog.error = "Download error"
 
-    selected_cookie = st.selectbox("Select cookie file", names, index=0, key="cookie_select")
-
-    uploaded = st.file_uploader("Upload cookies.txt", type=["txt"], key="cookie_upload")
-    if uploaded is not None:
-        path = save_uploaded_cookie(uploaded.name, uploaded.getvalue())
-        st.success(f"Cookie saved: {path.name}")
-        st.rerun()
-
-# ---------- Main Layout ----------
-col_left, col_right = st.columns([7, 5], gap="large")
-
-with col_left:
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown("### Download")
-    url = st.text_input("Video URL", placeholder="https://...")
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        media = st.selectbox("Format", ["video", "audio"], index=0)
-    with col_b:
-        quality = st.selectbox("Quality (video)", ["best", "1080p", "720p", "480p", "360p"], index=0)
-
-    start = st.button("Start Download")
-    placeholder = st.empty()
-
-    if start:
-        if not url.strip():
-            st.error("Please provide a valid URL.")
+# ---------- Download Job ----------
+def download_job(url: str, media: str, quality: str, session_id: str, cookie_file: str | None = None):
+    prog = download_sessions[session_id]
+    prog.status = "starting"
+    
+    try:
+        opts = ydl_base_opts(url, cookie_file)
+        if media == "audio":
+            opts.update(build_audio_opts())
+        elif media == "photo":
+            opts.update(build_photo_opts())
         else:
-            session_id = str(uuid.uuid4())
-            start_download(
-                url=url.strip(),
-                media=media,
-                quality=quality,
-                session_id=session_id,
-                cookie_name=st.session_state.cookie_select
-            )
-
-            with placeholder.container():
-                st.write("Progress")
-                prog_bar = st.progress(0)
-                status_area = st.empty()
-
-            while True:
-                prog = download_sessions.get(session_id)
-                if not prog:
-                    time.sleep(0.2)
-                    continue
-
-                pct = max(0, min(100, int(prog.progress)))
-                prog_bar.progress(pct)
-                status_area.write(f"Status: {prog.status}")
-
-                if prog.status in ("completed", "error"):
+            opts["format"] = build_video_format(quality)
+        opts["progress_hooks"] = [lambda d: _progress_hook(d, session_id)]
+        
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            target = ydl.prepare_filename(info)
+            
+            # Look for the downloaded file
+            for cand in [target, target.replace(".webm", ".mp4"), target.replace(".mkv", ".mp4")]:
+                if os.path.exists(cand):
+                    prog.filepath = cand
+                    prog.filename = os.path.basename(cand)
                     break
-                time.sleep(0.35)
+                    
+            prog.status = "completed"
+            
+    except Exception as e:
+        prog.status = "error"
+        prog.error = str(e)
+        log.error(f"Download error: {e}")
 
-            prog = download_sessions.get(session_id)
-            if prog and prog.status == "completed" and prog.filepath:
-                st.success(f"Completed: {prog.filename}")
-                try:
-                    with open(prog.filepath, "rb") as f:
-                        st.download_button("Download file", f, file_name=Path(prog.filepath).name)
-                except Exception:
-                    st.info("File is saved to your system Downloads folder.")
-            elif prog and prog.status == "error":
-                st.error(f"Error: {prog.error or 'Download failed'}")
+# ---------- Start Download Wrapper ----------
+def start_download(url: str, media: str, quality: str, cookie_file: str | None = None):
+    """
+    Wrapper to start a download session, mimicking Flask's /start_download.
+    Returns the session_id and its progress object.
+    """
+    session_id = str(uuid.uuid4())
+    download_sessions[session_id] = DownloadProgress(session_id)
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    # Run synchronously for Streamlit
+    download_job(url, media, quality, session_id, cookie_file)
 
-with col_right:
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown("### System")
-    st.write(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    st.write(f"Downloads folder: {str(Path.home() / 'Downloads')}")
-    if cookies := list_cookie_files():
-        st.write("Cookie files found:")
-        for c in cookies:
-            st.write(f"• {c['name']}.txt")
-    else:
-        st.write("No cookie files detected.")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------- Footer ----------
-st.markdown(
-    f"<div class='footer'>&copy; {datetime.now().year} Eliot Downloader. All rights reserved.</div>",
-    unsafe_allow_html=True
-)
+    return session_id, download_sessions[session_id]
