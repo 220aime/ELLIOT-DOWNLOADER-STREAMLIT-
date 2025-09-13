@@ -169,21 +169,22 @@ def ydl_base_opts(url: str, cookie_file: Optional[str] = None):
     return opts
 
 def build_video_format(quality: str) -> str:
-    """Build video format string"""
+    """Build video format string with fallbacks"""
     if quality == "best":
-        return "best"
+        # Try multiple format fallbacks
+        return "best[ext=mp4]/best[ext=webm]/best"
     
     # Extract height from quality (e.g., "720p" -> "720")
     digits = "".join(ch for ch in quality if ch.isdigit())
     if not digits:
-        return "best"
+        return "best[ext=mp4]/best"
     
-    # If no FFmpeg, just get best single file
+    # If no FFmpeg, prioritize single file formats
     if not has_ffmpeg():
-        return f"best[height<={digits}]"
+        return f"best[height<={digits}][ext=mp4]/best[height<={digits}]"
     
-    # With FFmpeg, can merge video+audio
-    return f"best[height<={digits}]"
+    # With FFmpeg, can try more complex formats
+    return f"best[height<={digits}][ext=mp4]/bestvideo[height<={digits}]+bestaudio/best[height<={digits}]"
 
 def build_audio_opts():
     """Build audio extraction options"""
