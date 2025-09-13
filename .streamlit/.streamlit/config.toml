@@ -1,6 +1,0 @@
-[theme]
-base="dark"            # "light", "dark", or "auto"
-primaryColor="#2563eb" # accent
-backgroundColor="#0b0c0f"
-secondaryBackgroundColor="#111317"
-textColor="#e5e7eb"
