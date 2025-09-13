@@ -131,7 +131,7 @@ with st.sidebar:
     if uploaded is not None:
         path = save_uploaded_cookie(uploaded.name, uploaded.getvalue())
         st.success(f"Cookie saved: {path.name}")
-        st.experimental_rerun()
+        st.rerun()
 
 # ---------- Main Layout ----------
 col_left, col_right = st.columns([7, 5], gap="large")
