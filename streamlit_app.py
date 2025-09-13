@@ -118,6 +118,22 @@ def start_download_session(url: str, media: str, quality: str, cookie_name: str 
 with st.sidebar:
     st.markdown("### Cookie Management")
     
+    st.info("**Required for**: YouTube (age-restricted), agasobanuyefilms.com (all content)")
+    
+    with st.expander("How to get cookies"):
+        st.markdown("""
+        **Method 1: Browser Extension**
+        1. Install "Get cookies.txt" extension
+        2. Go to the website and log in
+        3. Click extension to export cookies.txt
+        
+        **Method 2: Manual Export**
+        1. Open browser dev tools (F12)
+        2. Go to Application/Storage tab
+        3. Copy cookies for the domain
+        4. Format as Netscape cookies.txt
+        """)
+    
     # Cleanup old cookies
     cleanup_old_cookies()
     
