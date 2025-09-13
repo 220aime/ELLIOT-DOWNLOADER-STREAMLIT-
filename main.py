@@ -190,3 +190,17 @@ def download_job(url: str, media: str, quality: str, session_id: str, cookie_fil
         prog.status = "error"
         prog.error = str(e)
         log.error(f"Download error: {e}")
+
+# ---------- Start Download Wrapper ----------
+def start_download(url: str, media: str, quality: str, cookie_file: str | None = None):
+    """
+    Wrapper to start a download session, mimicking Flask's /start_download.
+    Returns the session_id and its progress object.
+    """
+    session_id = str(uuid.uuid4())
+    download_sessions[session_id] = DownloadProgress(session_id)
+
+    # Run synchronously for Streamlit
+    download_job(url, media, quality, session_id, cookie_file)
+
+    return session_id, download_sessions[session_id]
