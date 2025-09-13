@@ -1,4 +1,4 @@
-# streamlit_app.py — Professional Streamlit dashboard for Eliot Downloader
+# streamlit_app.py — Eliot Downloader with Light/Dark theme support
 from __future__ import annotations
 
 import uuid
@@ -22,8 +22,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# ---------- Basic SEO (limited in Streamlit) ----------
-# Streamlit doesn't expose <head> directly; this injects minimal tags.
+# ---------- Basic SEO ----------
 st.markdown(
     """
     <meta name="description" content="Eliot Downloader — fast, reliable video and audio downloader powered by yt-dlp.">
@@ -32,87 +31,72 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ---------- Style ----------
-CUSTOM_CSS = """
-<style>
-/* Base */
-:root {
-  --brand: #111827;
-  --accent: #2563eb;
-  --bg: #0b0c0f;
-  --panel: #111317;
-  --text: #e5e7eb;
-  --muted: #9ca3af;
-  --ok: #16a34a;
-  --err: #dc2626;
-}
-body, .stApp {
-  background-color: var(--bg);
-  color: var(--text);
-}
+# ---------- Theme Detection ----------
+theme = st.get_option("theme.base") or "dark"  # "light" or "dark"
 
-/* Panels */
-.block-container { padding-top: 2rem; }
-.card {
-  background: var(--panel);
-  border: 1px solid #1f2937;
-  border-radius: 14px;
-  padding: 20px;
-}
-.card h3 { margin-top: 0; color: var(--text); }
+if theme == "light":
+    CUSTOM_CSS = """
+    <style>
+    body, .stApp {
+      background-color: #ffffff;
+      color: #111827;
+    }
+    .card {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      padding: 20px;
+    }
+    .stButton>button {
+      background: #2563eb;
+      color: white;
+      border-radius: 8px;
+      border: none;
+      padding: 0.6rem 1rem;
+    }
+    .stButton>button:hover { opacity: 0.92; }
+    .footer {
+      color: #6b7280;
+      font-size: 13px;
+      text-align: center;
+      padding: 16px 0 6px 0;
+      border-top: 1px solid #e5e7eb;
+      margin-top: 28px;
+    }
+    </style>
+    """
+else:  # dark theme
+    CUSTOM_CSS = """
+    <style>
+    body, .stApp {
+      background-color: #0b0c0f;
+      color: #e5e7eb;
+    }
+    .card {
+      background: #111317;
+      border: 1px solid #1f2937;
+      border-radius: 14px;
+      padding: 20px;
+    }
+    .stButton>button {
+      background: #2563eb;
+      color: white;
+      border-radius: 8px;
+      border: none;
+      padding: 0.6rem 1rem;
+    }
+    .stButton>button:hover { opacity: 0.92; }
+    .footer {
+      color: #9ca3af;
+      font-size: 13px;
+      text-align: center;
+      padding: 16px 0 6px 0;
+      border-top: 1px solid #1f2937;
+      margin-top: 28px;
+    }
+    </style>
+    """
 
-/* Inputs */
-.stTextInput > div > div > input,
-.stSelectbox > div > div > div > div,
-.stFileUploader > div > div > div > input {
-  background: #0f1115 !important;
-  color: var(--text) !important;
-  border-radius: 8px !important;
-}
-
-/* Buttons */
-.stButton>button {
-  background: var(--accent);
-  color: white;
-  border-radius: 10px;
-  border: none;
-  padding: 0.6rem 1rem;
-}
-.stButton>button:hover { opacity: 0.92; }
-
-/* Progress */
-.progress-wrap {
-  margin-top: 8px;
-  background: #0e1117;
-  border: 1px solid #1f2937;
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-.kpi {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 10px;
-}
-.kpi .item {
-  background: #0e1117;
-  border: 1px solid #1f2937;
-  border-radius: 10px;
-  padding: 10px;
-  font-size: 14px;
-  color: var(--muted);
-}
-.kpi .item strong { color: var(--text); display:block; font-size: 16px; }
-.footer {
-  color: var(--muted);
-  font-size: 13px;
-  text-align: center;
-  padding: 16px 0 6px 0;
-  border-top: 1px solid #1f2937;
-  margin-top: 28px;
-}
-</style>
-"""
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # ---------- Sidebar ----------
@@ -149,10 +133,9 @@ with col_left:
     with col_a:
         media = st.selectbox("Format", ["video", "audio"], index=0)
     with col_b:
-        quality = st.selectbox("Quality (video)", ["best", "1080p", "720p", "480p", "360p"], index=0, help="Ignored for audio mode.")
+        quality = st.selectbox("Quality (video)", ["best", "1080p", "720p", "480p", "360p"], index=0)
 
     start = st.button("Start Download")
-
     placeholder = st.empty()
 
     if start:
@@ -167,50 +150,29 @@ with col_left:
                 st.write("Progress")
                 prog_bar = st.progress(0)
                 status_area = st.empty()
-                kpi = st.empty()
 
-            # Poll until finished
             while True:
                 prog = download_sessions.get(session_id)
                 if not prog:
                     time.sleep(0.2)
                     continue
 
-                # Update UI
                 pct = max(0, min(100, int(prog.progress)))
                 prog_bar.progress(pct)
-
-                status_area.markdown(
-                    f"<div class='progress-wrap'>Status: <strong>{prog.status}</strong></div>",
-                    unsafe_allow_html=True
-                )
-                kpi.markdown(
-                    f"""
-                    <div class='kpi'>
-                      <div class='item'><span>Downloaded</span><strong>{prog.downloaded}</strong></div>
-                      <div class='item'><span>Total</span><strong>{prog.file_size}</strong></div>
-                      <div class='item'><span>Speed</span><strong>{prog.speed}</strong></div>
-                      <div class='item'><span>ETA</span><strong>{prog.eta}</strong></div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                status_area.write(f"Status: {prog.status}")
 
                 if prog.status in ("completed", "error"):
                     break
                 time.sleep(0.35)
 
-            # Final state
             prog = download_sessions.get(session_id)
             if prog and prog.status == "completed" and prog.filepath:
                 st.success(f"Completed: {prog.filename}")
-                # Offer direct download via Streamlit
                 try:
                     with open(prog.filepath, "rb") as f:
                         st.download_button("Download file", f, file_name=Path(prog.filepath).name)
                 except Exception:
                     st.info("File is saved to your system Downloads folder.")
-
             elif prog and prog.status == "error":
                 st.error(f"Error: {prog.error or 'Download failed'}")
 
@@ -229,6 +191,7 @@ with col_right:
         st.write("No cookie files detected.")
     st.markdown("</div>", unsafe_allow_html=True)
 
+# ---------- Footer ----------
 st.markdown(
     f"<div class='footer'>&copy; {datetime.now().year} Eliot Downloader. All rights reserved.</div>",
     unsafe_allow_html=True
