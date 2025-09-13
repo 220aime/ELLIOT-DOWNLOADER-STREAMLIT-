@@ -1,4 +1,4 @@
-# streamlit_app.py — Eliot Downloader with Light/Dark theme support
+# streamlit_app.py — Eliot Downloader with Light/Dark theme + toggle
 from __future__ import annotations
 
 import uuid
@@ -31,9 +31,23 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ---------- Theme Detection ----------
-theme = st.get_option("theme.base") or "dark"  # "light" or "dark"
+# ---------- Theme: Auto + Toggle ----------
+default_theme = st.get_option("theme.base") or "dark"  # auto-detected from Streamlit
+if "user_theme" not in st.session_state:
+    st.session_state.user_theme = default_theme
 
+with st.sidebar:
+    st.markdown("### Appearance")
+    st.session_state.user_theme = st.radio(
+        "Theme",
+        ["light", "dark"],
+        index=0 if st.session_state.user_theme == "light" else 1
+    )
+    st.markdown("---")
+
+theme = st.session_state.user_theme
+
+# ---------- Custom CSS ----------
 if theme == "light":
     CUSTOM_CSS = """
     <style>
@@ -65,7 +79,7 @@ if theme == "light":
     }
     </style>
     """
-else:  # dark theme
+else:  # dark
     CUSTOM_CSS = """
     <style>
     body, .stApp {
@@ -99,13 +113,9 @@ else:  # dark theme
 
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-# ---------- Sidebar ----------
+# ---------- Sidebar (Cookies Section) ----------
 with st.sidebar:
-    st.markdown("<h2 style='margin-bottom:0'>Eliot Downloader</h2>", unsafe_allow_html=True)
-    st.caption("Streamlined video and audio downloads.")
-    st.markdown("---")
-
-    st.subheader("Cookies")
+    st.markdown("### Cookies")
     cookies = list_cookie_files()
     if cookies:
         names = ["None"] + [c["name"] for c in cookies]
@@ -114,7 +124,6 @@ with st.sidebar:
 
     selected_cookie = st.selectbox("Select cookie file", names, index=0, key="cookie_select")
 
-    st.markdown("Upload cookie file (.txt) to access age/region-restricted content.")
     uploaded = st.file_uploader("Upload cookies.txt", type=["txt"], key="cookie_upload")
     if uploaded is not None:
         path = save_uploaded_cookie(uploaded.name, uploaded.getvalue())
@@ -143,9 +152,15 @@ with col_left:
             st.error("Please provide a valid URL.")
         else:
             session_id = str(uuid.uuid4())
-            start_download(url=url.strip(), media=media, quality=quality, session_id=session_id, cookie_name=st.session_state.cookie_select)
+            start_download(
+                url=url.strip(),
+                media=media,
+                quality=quality,
+                session_id=session_id,
+                cookie_name=st.session_state.cookie_select
+            )
 
-            # Live progress polling
+            # Live progress
             with placeholder.container():
                 st.write("Progress")
                 prog_bar = st.progress(0)
