@@ -32,7 +32,7 @@ st.markdown(
 )
 
 # ---------- Theme: Auto + Toggle ----------
-default_theme = st.get_option("theme.base") or "dark"  # auto-detected from Streamlit
+default_theme = st.get_option("theme.base") or "dark"
 if "user_theme" not in st.session_state:
     st.session_state.user_theme = default_theme
 
@@ -53,28 +53,30 @@ if theme == "light":
     <style>
     body, .stApp {
       background-color: #ffffff;
-      color: #111827;
+      color: #000000;
     }
     .card {
-      background: #f9fafb;
-      border: 1px solid #e5e7eb;
+      background: #ffffff;
+      border: 1px solid #f3f4f6;
       border-radius: 14px;
       padding: 20px;
+      color: #000000;
     }
     .stButton>button {
-      background: #2563eb;
-      color: white;
+      background: #ec4899; /* pink */
+      color: #000000;      /* black font */
       border-radius: 8px;
       border: none;
       padding: 0.6rem 1rem;
+      font-weight: 500;
     }
-    .stButton>button:hover { opacity: 0.92; }
+    .stButton>button:hover { opacity: 0.9; }
     .footer {
       color: #6b7280;
       font-size: 13px;
       text-align: center;
       padding: 16px 0 6px 0;
-      border-top: 1px solid #e5e7eb;
+      border-top: 1px solid #f3f4f6;
       margin-top: 28px;
     }
     </style>
@@ -93,11 +95,12 @@ else:  # dark
       padding: 20px;
     }
     .stButton>button {
-      background: #2563eb;
-      color: white;
+      background: #2563eb; /* blue accent */
+      color: #ffffff;
       border-radius: 8px;
       border: none;
       padding: 0.6rem 1rem;
+      font-weight: 500;
     }
     .stButton>button:hover { opacity: 0.92; }
     .footer {
@@ -160,7 +163,6 @@ with col_left:
                 cookie_name=st.session_state.cookie_select
             )
 
-            # Live progress
             with placeholder.container():
                 st.write("Progress")
                 prog_bar = st.progress(0)
