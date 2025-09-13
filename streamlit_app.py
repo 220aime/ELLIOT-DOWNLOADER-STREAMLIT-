@@ -1,216 +1,95 @@
-# streamlit_app.py — Eliot Downloader with Light/Dark theme + toggle
-from __future__ import annotations
+# streamlit_app.py — Eliot Downloader (Streamlit Edition)
 
-import uuid
-import time
-from pathlib import Path
-from datetime import datetime
-
+import os
 import streamlit as st
-
 from main import (
     list_cookie_files,
     save_uploaded_cookie,
-    download_sessions,
-    download_job,
     cleanup_old_cookies,
+    start_download,
+    download_sessions,
 )
 
 # ---------- Page Config ----------
 st.set_page_config(
     page_title="Eliot Downloader",
-    page_icon=None,
+    page_icon="⬇️",
     layout="wide"
 )
 
-# ---------- Basic SEO ----------
-st.markdown(
-    """
-    <meta name="description" content="Eliot Downloader — fast, reliable video and audio downloader powered by yt-dlp.">
-    <meta name="robots" content="index,follow">
-    """,
-    unsafe_allow_html=True
-)
+# ---------- Theme Toggle ----------
+if "theme" not in st.session_state:
+    st.session_state.theme = "light"
 
-# ---------- Theme: Auto + Toggle ----------
-default_theme = st.get_option("theme.base") or "dark"
-if "user_theme" not in st.session_state:
-    st.session_state.user_theme = default_theme
+def toggle_theme():
+    st.session_state.theme = "dark" if st.session_state.theme == "light" else "light"
 
-with st.sidebar:
-    st.markdown("### Appearance")
-    st.session_state.user_theme = st.radio(
-        "Theme",
-        ["light", "dark"],
-        index=0 if st.session_state.user_theme == "light" else 1
+if st.button("Toggle Light/Dark Mode"):
+    toggle_theme()
+
+if st.session_state.theme == "light":
+    st.markdown(
+        """
+        <style>
+        body, .stApp { background-color: #ffffff; color: #000000; }
+        .stButton>button { background-color: #ec4899; color: #ffffff; border-radius: 8px; }
+        .stTextInput>div>div>input { border: 1px solid #ec4899; }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
-    st.markdown("---")
+else:
+    st.markdown(
+        """
+        <style>
+        body, .stApp { background-color: #0b0c0f; color: #e5e7eb; }
+        .stButton>button { background-color: #2563eb; color: #ffffff; border-radius: 8px; }
+        .stTextInput>div>div>input { border: 1px solid #2563eb; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-theme = st.session_state.user_theme
+# ---------- Header ----------
+st.title("Eliot Downloader")
+st.write("Download videos, audio, and images from supported platforms (YouTube, Vimeo, Instagram, Pinterest, Agasobanuyefilms, etc.)")
 
-# ---------- Custom CSS ----------
-if theme == "light":
-    CUSTOM_CSS = """
-    <style>
-    body, .stApp {
-      background-color: #ffffff;
-      color: #000000;
-    }
-    .card {
-      background: #ffffff;
-      border: 1px solid #f3f4f6;
-      border-radius: 14px;
-      padding: 20px;
-      color: #000000;
-    }
-    .stButton>button {
-      background: #ec4899; /* pink */
-      color: #000000;      /* black font */
-      border-radius: 8px;
-      border: none;
-      padding: 0.6rem 1rem;
-      font-weight: 500;
-    }
-    .stButton>button:hover { opacity: 0.9; }
-    .footer {
-      color: #6b7280;
-      font-size: 13px;
-      text-align: center;
-      padding: 16px 0 6px 0;
-      border-top: 1px solid #f3f4f6;
-      margin-top: 28px;
-    }
-    </style>
-    """
-else:  # dark
-    CUSTOM_CSS = """
-    <style>
-    body, .stApp {
-      background-color: #0b0c0f;
-      color: #e5e7eb;
-    }
-    .card {
-      background: #111317;
-      border: 1px solid #1f2937;
-      border-radius: 14px;
-      padding: 20px;
-    }
-    .stButton>button {
-      background: #2563eb; /* blue accent */
-      color: #ffffff;
-      border-radius: 8px;
-      border: none;
-      padding: 0.6rem 1rem;
-      font-weight: 500;
-    }
-    .stButton>button:hover { opacity: 0.92; }
-    .footer {
-      color: #9ca3af;
-      font-size: 13px;
-      text-align: center;
-      padding: 16px 0 6px 0;
-      border-top: 1px solid #1f2937;
-      margin-top: 28px;
-    }
-    </style>
-    """
+# ---------- Input ----------
+url = st.text_input("Enter media URL", placeholder="https://youtube.com/watch?v=...")
+media_type = st.selectbox("Select type", ["video", "audio", "photo"])
+quality = st.selectbox("Quality", ["best", "1080p", "720p", "480p", "360p"])
 
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+# ---------- Cookies ----------
+st.subheader("Cookie Management")
+uploaded_cookie = st.file_uploader("Upload cookie file (.txt)", type=["txt"])
 
-# ---------- Sidebar (Cookies Section) ----------
-with st.sidebar:
-    st.markdown("### Cookies")
-    cookies = list_cookie_files()
-    if cookies:
-        names = ["None"] + [c["name"] for c in cookies]
+if uploaded_cookie:
+    path = save_uploaded_cookie(uploaded_cookie.name, uploaded_cookie.read())
+    st.success(f"Cookie saved: {path.name}")
+    st.rerun()
+
+cleanup_old_cookies()
+cookies = list_cookie_files()
+if cookies:
+    cookie_choice = st.selectbox("Select a cookie file", [None] + [c["name"] for c in cookies])
+    cookie_file_path = next((c["path"] for c in cookies if c["name"] == cookie_choice), None)
+else:
+    cookie_file_path = None
+
+# ---------- Download ----------
+if st.button("Start Download"):
+    if not url:
+        st.error("Please enter a valid URL.")
     else:
-        names = ["None"]
+        session_id, prog = start_download(url, media_type, quality, cookie_file_path)
+        st.info(f"Started download with session ID: {session_id}")
 
-    selected_cookie = st.selectbox("Select cookie file", names, index=0, key="cookie_select")
-
-    uploaded = st.file_uploader("Upload cookies.txt", type=["txt"], key="cookie_upload")
-    if uploaded is not None:
-        path = save_uploaded_cookie(uploaded.name, uploaded.getvalue())
-        st.success(f"Cookie saved: {path.name}")
-        st.rerun()
-
-# ---------- Main Layout ----------
-col_left, col_right = st.columns([7, 5], gap="large")
-
-with col_left:
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown("### Download")
-    url = st.text_input("Video URL", placeholder="https://...")
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        media = st.selectbox("Format", ["video", "audio"], index=0)
-    with col_b:
-        quality = st.selectbox("Quality (video)", ["best", "1080p", "720p", "480p", "360p"], index=0)
-
-    start = st.button("Start Download")
-    placeholder = st.empty()
-
-    if start:
-        if not url.strip():
-            st.error("Please provide a valid URL.")
+        # Show progress
+        if prog.status == "completed":
+            st.success(f"Download complete: {prog.filename}")
+            with open(prog.filepath, "rb") as f:
+                st.download_button("Download File", f, file_name=prog.filename)
+        elif prog.status == "error":
+            st.error(f"Download failed: {prog.error}")
         else:
-            session_id = str(uuid.uuid4())
-            start_download(
-                url=url.strip(),
-                media=media,
-                quality=quality,
-                session_id=session_id,
-                cookie_name=st.session_state.cookie_select
-            )
-
-            with placeholder.container():
-                st.write("Progress")
-                prog_bar = st.progress(0)
-                status_area = st.empty()
-
-            while True:
-                prog = download_sessions.get(session_id)
-                if not prog:
-                    time.sleep(0.2)
-                    continue
-
-                pct = max(0, min(100, int(prog.progress)))
-                prog_bar.progress(pct)
-                status_area.write(f"Status: {prog.status}")
-
-                if prog.status in ("completed", "error"):
-                    break
-                time.sleep(0.35)
-
-            prog = download_sessions.get(session_id)
-            if prog and prog.status == "completed" and prog.filepath:
-                st.success(f"Completed: {prog.filename}")
-                try:
-                    with open(prog.filepath, "rb") as f:
-                        st.download_button("Download file", f, file_name=Path(prog.filepath).name)
-                except Exception:
-                    st.info("File is saved to your system Downloads folder.")
-            elif prog and prog.status == "error":
-                st.error(f"Error: {prog.error or 'Download failed'}")
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-with col_right:
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown("### System")
-    st.write(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    st.write(f"Downloads folder: {str(Path.home() / 'Downloads')}")
-    if cookies := list_cookie_files():
-        st.write("Cookie files found:")
-        for c in cookies:
-            st.write(f"• {c['name']}.txt")
-    else:
-        st.write("No cookie files detected.")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------- Footer ----------
-st.markdown(
-    f"<div class='footer'>&copy; {datetime.now().year} Eliot Downloader. All rights reserved.</div>",
-    unsafe_allow_html=True
-)
+            st.warning(f"Status: {prog.status}")
